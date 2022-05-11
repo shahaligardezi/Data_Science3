@@ -1,0 +1,566 @@
+---
+title: "Winner takes it All! "
+author: "Shah Ali Gardezi"
+date: "4/27/2022"
+output:
+  prettydoc::html_pretty:
+    toc: yes
+    number_sections: yes
+    theme: cayman
+    highlight: github
+---
+
+
+![](/Users/shahali/Documents/winter_semester/Designing Analytics Projects/final_project/race_pic.webp)
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+library(rtweet)
+
+library(dplyr)
+library(tidytext)
+
+library(tidyverse)
+
+library(ggplot2)
+
+library(textclean)
+library(tm)
+library(wordcloud)
+library(reshape2)
+library(sentimentr)
+library(kableExtra)
+
+library(stopwords)
+library(igraph)
+
+library(networkD3)
+
+
+```
+
+# Introduction
+
+In a nail biting title-decider, Max Vastrappen of RedBull Racing and Lewis Hamilton the Mercedes driver came head to head each other in the final lap of Abu Dhabi GrandPrix 2021. Max Vastrappen with his fresh tires ultimately overtook Lewis to claim his maiden GrandPrix title. This victory caused frenzy in the Motorsport world, as fans which began to outpour their emotions all over social media expressing their excitement over Vastrappen's victory or dismay over the decision of F1's race director Michel Masi. Race director allowed Vastrappen to overtake all lapped cars (the slower cars on previous lap than the leader car) despite clear rules of no over taking during safety car laps.
+
+This provided an ideal scenario for me as an F1 fan to analyse the sentiment of millions of other fans around the world and see how the world of twitter reacted to FIA's (F1 governing body) final decision of declaring Max Vastrappen as F1 2021 GrandPrix champion. 
+
+# Data collection 
+
+The first step in analysis was the collection of data from Twitter. My initial plan was to use TwitterAPI to access the tweets using _twitteR_ package in R. However there were restrictions in this approach. Most publicly available APIs does not allow one to net tweets from more 6 to 9 days or at max 30 days old. In my case the race took place about 6 months ago. Moreover there is a cap to the maximum number of tweets one can access using this method. You can not gather more than 3200 tweets. For the purpose of this analysis I wanted to use close to 50,000 tweets. Moreover there were restriction on the geo-location for tweet gathering. Although that was not my goal for this analysis but this posed an hindrance on the freedom of analysis in way at some point I decided to look into specific geographic locations for analysis, I should have the liberty to do so. Hence I overcame this challenge by using python _snscrape_ library in python and using twitter module.
+
+Python provided simple data gathering with few line of code. Python notebook I created for data collection can be found on my [Github](https://github.com/shahaligardezi/Data_Science3.git) repository along with final _**csv**_ dataset. I used the relevant keywords related to _Max Vastrappen, Lewis Hamilton, MercesdesAMGF1 , RedBull Racing and F1_ and the popular hastags related to the topic such as _#IstandwithLewsiHamilton_ to gather the tweets. The date selected for the day of the race which was December 12, 2021 until the next day December 13, 2021. The tweet count limit was set at 50,000.
+
+The dataframe columns that I extracted from twitter included name of user, tweet text and count of likes on each tweet.
+
+
+
+# Data Loading
+
+```{r message=FALSE, warning=FALSE}
+raw_tweets<-read.csv(url("https://raw.githubusercontent.com/shahaligardezi/Data_Science3/main/Data/New_f1_12_12_50000.csv"))
+
+```
+
+
+# Data cleaning
+
+After loading the data into the the R environment, I performed data cleaning using the following code. The step by step guide is given as comments in the code chunk below.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# Step by Step cleaning of tweets:
+
+## Removing Mentions
+raw_tweets$Tweet <- gsub('@\\S+', '', raw_tweets$Tweet)
+
+##Removing URLs
+raw_tweets$Tweet <-  gsub('http\\S+\\s*', '', raw_tweets$Tweet)
+
+## Removing Emojis
+raw_tweets$Tweet <- sapply(raw_tweets$Tweet,function(row) iconv(row, "latin1", "ASCII", sub=""))
+
+## Removing Hashtags
+raw_tweets$Tweet <- str_replace_all(raw_tweets$Tweet,"#[a-z,A-Z]*","")
+
+## Removing contractions
+raw_tweets$Tweet <-  replace_contraction(raw_tweets$Tweet)
+
+## Removing RTs (if any)
+raw_tweets$Tweet  <-  gsub('\\b+RT', '', raw_tweets$Tweet)
+
+## Removing Punctuation
+raw_tweets$Tweet <- removePunctuation(raw_tweets$Tweet,
+                  preserve_intra_word_contractions = TRUE,
+                  preserve_intra_word_dashes = TRUE,
+                  ucp = FALSE)
+
+
+## Remove Controls and special characters
+raw_tweets$Tweet <- gsub('[[:cntrl:]]', '', raw_tweets$Tweet)
+
+
+## Changing & (to and)
+raw_tweets$Tweet <- gsub("&", "and", raw_tweets$Tweet, fixed = TRUE)
+raw_tweets$Tweet <- gsub("%", "percentage", raw_tweets$Tweet, fixed = TRUE)
+
+
+## Changing words
+raw_tweets$Tweet <- gsub(" merc ", " Mercedes ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" Merc ", " Mercedes ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" Mercs ", " Mercedes ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" imo ", " in my opinion ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" Im ", " I am ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" im ", " I am ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" amp ", " and ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("didnt", "did not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("dont", "do not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("doesnt", "does not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("wasnt", "was not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("isnt", "is not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub(" ive ", " I have ", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("wouldnt", "would not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("wont", "will not", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("tbh", "to be honest", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("idk", "i do not know", raw_tweets$Tweet)
+
+
+raw_tweets$Tweet <- gsub("F1", "FormulaOne", raw_tweets$Tweet)
+raw_tweets$Tweet <- gsub("f1", "FormulaOne", raw_tweets$Tweet)
+
+
+## Keep tweets with greater than 5 words
+raw_tweets <- raw_tweets[sapply(strsplit(as.character(raw_tweets$Tweet)," "),length)>6,]
+
+## Remove numbers 
+raw_tweets$Tweet <- gsub("\\d", "", raw_tweets$Tweet)
+
+## Removing trailing and extra whitespaces
+raw_tweets$Tweet <- gsub("[[:space:]]*$","", raw_tweets$Tweet)
+raw_tweets$Tweet<- gsub(' +',' ', raw_tweets$Tweet)
+
+
+## Remove rows with NA values (if any)
+raw_tweets <- raw_tweets[complete.cases(raw_tweets), ]
+
+#Lowercase the tweets. However this will also be dealt in unnest_token package
+raw_tweets$Tweet <-  tolower(raw_tweets$Tweet)
+
+#renaming the index to element_id
+names(raw_tweets)[1] <- 'element_id'
+```
+
+
+Now that I had the cleaned text I could start with the analysis. Throughout the project I used the tidytext approach. First I tokenized the clean tweets I received from above which meant that in the resulting data frame every word of every tweet is formed as an observation. Then I filtered the english stopwords so that I would be left with more meaningful words only.
+
+
+```{r tokenization, echo = FALSE, message = FALSE, warning = FALSE}
+
+## Unnest tokens
+tweets_token <- raw_tweets %>%
+  mutate(tweet_number = row_number()) %>%
+  group_by(User)  %>%
+  ungroup() %>%
+  unnest_tokens(word, Tweet)
+  
+
+## Removing stop words
+tweets_token <- tweets_token %>%
+  anti_join(stop_words)
+
+
+```
+
+
+## Frequent Words
+
+In the plot below I visualized those words that appeared most frequently in the tweets. The bar graph show top 20 most frequently used words. Even see that even the in top five words we see that the word _rule_ has been mentioned close to 5000 times which hints to the fact that people are talking and referring to the rules of the game in their tweets. In addition, we can also see words like "safety" as analogous to safety car that was deployed in the race and mention of word _Masi_, the race director besides the mention of names of two athletes Max and Lewis. 
+
+
+
+```{r word freq, echo = FALSE, message = FALSE, warning = FALSE}
+
+word_freq <- tweets_token %>%
+  count(word, sort = TRUE) %>%
+  filter(word != "formulaone" ) %>%
+  top_n(20) %>%
+  mutate(word = reorder(word,n)) %>%
+  ggplot(aes(word, n)) + geom_col(fill = "pink") + coord_flip() + theme_classic()+ 
+  labs(title = "Word_Frequency",  x = NULL, y = NULL)
+word_freq
+```
+
+Lets proceed to examine our cleaned data in the form of the word cloud before deep diving into sentiments.
+
+
+```{r word cloud, echo=TRUE, message=FALSE, warning=FALSE}
+
+tweet_corpus <- Corpus(VectorSource(raw_tweets$Tweet ))
+# Convert the text to lower case
+tweet_corpus <- tm_map(tweet_corpus, content_transformer(tolower))
+# Remove numbers
+tweet_corpus <- tm_map(tweet_corpus, removeNumbers)
+# Remove english common stopwords
+tweet_corpus <- tm_map(tweet_corpus, removeWords, stopwords("english"))
+# Remove punctuations
+tweet_corpus <- tm_map(tweet_corpus, removePunctuation)
+# Eliminate extra white spaces
+tweet_corpus <- tm_map(tweet_corpus, stripWhitespace)
+ 
+
+tdm <- TermDocumentMatrix(tweet_corpus)
+m <- as.matrix(tdm)
+v <- sort(rowSums(m),decreasing=TRUE)
+d <- data.frame(word = names(v),freq=v)
+
+set.seed(1234)
+wordcloud(words = d$word, freq = d$freq, min.freq = 5,
+          max.words=300, random.order=FALSE, rot.per=0.35, 
+          colors=brewer.pal(8, "Dark2"))
+```
+From the world cloud we see a mix of words which can be subjectively categorised as both strong negative e.g violation, disgrace, rigged  and soft like best, winner, champion.
+
+# Sentiment Analysis
+In this analysis I will be performing series of sentiment analysis using  TidyText package and tools associated with the package such  _Lexicons_ including ( _Bing_, _NCR_ and _Afinn_) and _Sentimentr_
+
+## Sentiment Analysis at Word Level Using Bing Lexicon
+
+**Bing** function categorizes word into positive or negative sentiments
+
+```{r bing, echo=TRUE, message=FALSE, warning=FALSE}
+
+bing <- get_sentiments("bing")
+
+bing_senti <- tweets_token %>%
+      inner_join(bing) %>%
+      count(sentiment, sort = TRUE)
+
+
+```
+
+We can see here that the majority of words are considered negative. In order to gather a sense of what words in our data are being categorized as positive or negative, lets can take a peak using a comparison word cloud (and exclude any profanity using the sentimentr library) 
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+
+profanity_list <- unique(tolower(lexicon::profanity_alvarez))
+tweets_token %>% filter(!word %in% profanity_list) %>%
+    inner_join(get_sentiments("bing")) %>%
+    count(word, sentiment, sort = TRUE) %>%
+    acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+    comparison.cloud(colors = c("red", "blue"),
+                     max.words = 200)
+
+```
+
+This now gives us a deeper glimpse into our categories. We can see words like “fanastic”, “fairness”, “win”, and “respect” are positive, while words like “shame”, “cheating”, “blatant”, or “stolen” are negative. However, some words may be applicable to both a negative and positive sentiment using Bing lexicon depending on the context. The positively-classified “defeat” word is likely to be referencing the Lewis's first _defeat_ after a long haul to, while the negatively-classified “funny” may be in context of unfair ruling according to the fan. Without further examination, the classification of these words could be misconstrued as it may depend on the context of the full tweet or sentence.
+
+
+# Looking at AFINN analysis for these tweets
+
+**AFINN** function scores each word according to the sentiment it expresses.
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+#Afin for these tweets 
+afinn <- get_sentiments("afinn")
+
+afin_senti <- tweets_token %>% inner_join(afinn)
+afin_viz <- tweets_token %>%  inner_join(afinn, by = c(word = "word")) %>%
+  dplyr::count(word, value, sort = TRUE) %>% 
+  ungroup() 
+
+afin_kbl <- afin_viz  %>% 
+  kbl(caption = "Number of Words by Sentiment Category in Afinn",
+      col.names = c('Word', 'Afinn Value', 'Count')) %>%
+  kable_minimal()
+
+afin_viz  %>%
+  mutate(contribution = n * value) %>%
+  arrange(desc(abs(contribution))) %>%
+  head(50) %>% 
+  mutate(word = reorder(word, contribution)) %>%
+  ggplot(aes(word, n * value, fill = n * value > 0)) +
+  geom_col(show.legend = FALSE) +
+  xlab("Top 50 popular words ") +
+  ylab("Sentiment score * number of occurrences") +
+  coord_flip()+
+  theme_light()
+
+
+```
+
+From the Afinn analysis we see that unlike the Bing Lexicon, Afinn actually shows that based on the tokenized tweets there is more occurrence of words that show positive sentiment. This positivity can also be construed to depict that people are mostly accepting towards the final results of F1. 
+
+We now move onto third lexicon the NRC.
+
+# NRC 
+
+**NRC** function describes the sentiment of the word in terms of emotions.
+
+This states that words that occur the most have the positive sentiment followed by the negative. This is followed by the element of _trust_ this could be in the spirit of game or the final results and  _anticipation_. The anticipation could be because the same day Mercedes challenged final the results giving Mercedes fans hope of windfall in their favor.
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+nrc <- get_sentiments("nrc")
+
+nrc_tweets <- tweets_token %>% inner_join(nrc)  
+
+
+nrc_viz <- ggplot(nrc_tweets) +
+  aes(x = sentiment, fill = sentiment) +
+  geom_bar() +
+  scale_fill_viridis_d(option = "D", direction = 1) +
+  labs(title = "NRC Sentiment Analysis on tweets") +
+  coord_flip() +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(size = 15L,
+    face = "bold",
+    hjust = 0.5)
+  )
+
+
+```
+
+
+Since the three lexicons have different definitions for positive and negative sentiments I thought it would be interesting to compare them. To do this I first had to calculate the sentiments of tweets. This was achieved by subtracting the number of negative words in a tokenised tweets from the number of positive ones. For the AFINN and NRC lexicons this required an extra step because positive and negative categories had to be filtered. For the AFINN lexicon I assigned ‘positive’ to words with a score higher than zero and ‘negative’ to those with a score lower than zero. As for the NRC lexicon I simply just filtered for the ‘positive’ and ‘negative’ categories. The plot below shows the comparison of how the different lexicons assigned sentiment to tweets. We can see that the Bing and the NRC lexicons are more similar to each other then to the AFINN lexicon. The latter has very high peaks towards positivity. 
+
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# compare the three dictionaries
+# calculate sentiment with afinn
+afinn2 <- tweets_token %>% 
+  inner_join(afinn) %>%
+  mutate(sentiment = ifelse(value < 0, "negative", 
+                            ifelse(value == 0, "neutral", "positive")))%>%
+  count(index = word, sentiment)%>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative) %>% 
+  mutate(method = "AFINN")
+
+# calculate sentiment with nrc and bing
+bing_and_nrc <- bind_rows(tweets_token %>% 
+                            inner_join(bing) %>%
+                            mutate(method = "Bing et al."),
+                          tweets_token %>% 
+                            inner_join(nrc %>% 
+                                         filter(sentiment %in% c("positive", 
+                                                                 "negative"))) %>%
+                            mutate(method = "NRC")) %>%
+  count(method, index = word, sentiment) %>%
+  spread(sentiment, n, fill = 0) %>%
+  mutate(sentiment = positive - negative)
+
+# bind the two df-s and plot sentiment across songs
+bind_rows(afinn2, 
+          bing_and_nrc) %>%
+  ggplot(aes(index, sentiment, fill = method)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~method, ncol = 1, scales = "free_y") +
+  labs(x = NULL, y = 'Sentiment', title = 'Comparison of Sentiment Lexicons') +
+  theme(axis.text.x = element_blank(),
+        axis.ticks = element_blank(),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())
+
+
+```
+Now that we have see the sentiment on the tokenized tweet. I decided to dive into see how full tweets text come out in terms of sentiment.
+
+
+# Full Tweet Sentiment analysis
+
+Using the _sentimentr_ library, we can analyze full tweets and examine a Mean Sentiment score instead of word-by-word classification.
+
+```{r , message=FALSE, warning=FALSE, echo=FALSE}
+
+tweet_sentences_data <- sentiment(get_sentences(raw_tweets$Tweet)) %>% 
+  group_by(raw_tweets$element_id) %>% 
+  summarize(meanSentiment = mean(sentiment))
+
+head(tweet_sentences_data,10)
+
+
+```
+
+We can also observe how positive the most positive tweet is versus how negative the most negative tweet is, and we can get a count within each group. The Visualization below shows  that our most negative tweet is in fact very negative at -2 and +2 for positive tweets.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+tweet_sentences_data %>%
+  ggplot(aes(x=meanSentiment)) + 
+  geom_histogram(binwidth = 1, fill = "lightblue")+ 
+  ylab("Frequency") + 
+  xlab("sentiment score") +
+  ggtitle("Distribution of Sentiment scores of the tweets") +
+  ggeasy::easy_center_title()
+
+
+```
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+print(paste0("Most negative tweets sentiment: ", min(tweet_sentences_data$meanSentiment)))
+print(paste0("Most positive tweets sentiment: ", max(tweet_sentences_data$meanSentiment)))
+print(paste0("Number of Negative Tweets: ", sum(tweet_sentences_data$meanSentiment < 0)))
+print(paste0("Number of Neutral Tweets: ", sum(tweet_sentences_data$meanSentiment == 0)))
+print(paste0("Number of Positive Tweets: ", sum(tweet_sentences_data$meanSentiment > 0)))
+
+```
+
+Looking at the overall tweet texts and assigning category of positive, negative or nuetral on the basis of the mean sentiment score we conclude that in parsing the full tweet text the sentiment comes out to be:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#pie chart
+
+slices <- c(sum(tweet_sentences_data$meanSentiment < 0), sum(tweet_sentences_data$meanSentiment == 0),
+            sum(tweet_sentences_data$meanSentiment > 0))
+labels <- c("Negative Tweets: ", "Neutral Tweets: ", "Positive Tweets: ")
+pct <- round(slices/sum(slices)*100)
+labels <- paste(labels, pct, "%", sep = "") #customize labeling
+#add in appropriate colors for positive, neutral, negative
+pie(slices, labels = labels, col=c('red', 'yellow', 'green'), 
+   main="Tweet Sentiment Percentages")
+
+# At the tweet level, we can see the sentiments across our Tweets pulled more towards the the positive side than at the word level.
+
+```
+#Sentiment Analysis at User Level
+
+Another interesting expansion of this analysis is to show the sentiment per each user, as some users may have multiple tweets that differ in sentiment. However, we have over 25000 users in our dataset. For a cleaner visual and easier initial exploration, we will limit our data to the top 50 most liked tweets and their respective users.
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+
+n_distinct(raw_tweets$User)
+
+#selecting top 50 tweets by favorites
+user_sentiment <- raw_tweets %>% select(User, Favourites, Tweet)  %>% arrange(desc(Favourites)) %>% slice(1:50) 
+
+head(user_sentiment,10)
+
+```
+Now we have our data ordered by descending favorite counts and limited to the top 50 tweets, and we can easily group sentiment per each user and gather a better understanding of these users’ sentiments using sentiment_by() from the sentimentr library once more.
+
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+
+out <- sentiment_by(get_sentences(user_sentiment$Tweet), 
+                    list(user_sentiment$User))
+plot(out)
+
+
+```
+
+This enables us to gather a better understanding of the sentiment per each user. We note that some credible influencers from the industry like Chris MedLand Bradley Philpot and the official Twitter handle of SkySports F1 have expressed a negative sentiment on the ruling by FIA. While big positive sentiment is being displayed in tweets from the official handles of Redbull Racing, F1 and FIA. Rest are mixed depending on which side the fan support or neutral.
+
+
+
+# Network analysis
+
+So far we have dealt with one tokenized text containing one word or unigrams. We now proceed to do bigrams to perform a network analysis which will provide us with most frequent pair of word occurrence. The steps involved are described in the comments of the code.
+
+The word network shows that interesting amalgamation of words with read togther with the links. For example "Lewis-fans-crying, Formalaone-Rigged-never-seen etc. 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+
+# Bigram tokens -
+
+#Create bigrams
+bigram_tweets <- raw_tweets %>%
+  mutate(tweet_number = row_number()) %>%
+  group_by(User)  %>%
+  ungroup() %>%
+  unnest_tokens(bigram, Tweet,token = "ngrams", n = 2) %>% 
+  filter(! is.na(bigram))
+
+
+#Filter Stopwords from bigrams
+stopwords_df <- tibble(
+  word = stopwords('english')
+)
+
+#Next, we filter for stop words and remove white spaces.
+b <- bigram_tweets %<>% 
+  separate(col = bigram, into = c('word1', 'word2'), sep = ' ') %>% 
+  filter(! word1 %in% stopwords_df$word) %>% 
+  filter(! word2 %in% stopwords_df$word) %>% 
+  filter(! is.na(word1)) %>% 
+  filter(! is.na(word2))
+
+#Group and count by bigram (for visualization)
+bigram_tweets_count_viz <- bigram_tweets %>% 
+  dplyr::count(word1, word2, sort = TRUE) %>% 
+  dplyr::rename(weight = n) %>% kbl(caption = "Bigram Weight Distribution",
+  col.names = c('Word1', 'Word2','Weight'))
+
+#Group and count by bigram
+ bigram_tweets_count <- bigram_tweets %>% 
+  dplyr::count(word1, word2, sort = TRUE) %>% 
+  dplyr::rename(weight = n)
+#bigram_tweets_count %>% head(10)
+
+#ploting distribution of the weightvalues:
+bigram_tweets_count %>% 
+  ggplot(mapping = aes(x = weight)) +
+  theme_light() +
+  geom_histogram() +
+  labs(title = "Bigram Weight Distribution")
+
+
+# Very skewed hence, taking log of the weightvalues for visualization
+bigram_tweets_count %>% 
+  mutate(weight = log(weight + 1)) %>% 
+  ggplot(mapping = aes(x = weight)) +
+  theme_light() +
+  geom_histogram() +
+  labs(title = "Bigram log-Weight Distribution")
+
+
+```
+```{r echo=TRUE}
+
+#In order to define weighted network from a bigram count we used the following structure.
+
+#Each word is going to represent a node.
+#Two words are going to be connected if they appear as a bigram.
+#The weight of an edge is the number of times the bigram appears in the corpus.
+
+
+threshold <- 75
+
+# For visualization purposes we scale by a global factor. 
+ScaleWeight <- function(x, lambda) {
+  x / lambda
+}
+
+network <-  bigram_tweets_count %>%
+  filter(weight > threshold) %>%
+  mutate(weight = ScaleWeight(x = weight, lambda = 2E3)) %>% 
+  graph_from_data_frame(directed = FALSE)
+
+plot(
+  network, 
+  vertex.size = 1,
+  vertex.label.color = 'black', 
+  vertex.label.cex = 0.7, 
+  vertex.label.dist = 1,
+  edge.color = 'gray', 
+  main = 'Bigram Count Network', 
+  sub = glue('Weight Threshold: {threshold}'), 
+  alpha = 50
+)
+
+
+```
+# Conculsion:
+
+Sentiment analysis is an incredibly useful way to better understand public perception or sentiment with social media data,however, we must also be aware of the limitations with this approach. Using data from Twitter, we are limited in terms of the data we are using, as it may be that case that people are more likely to tweet when they have a negative sentiment versus a neutral or positive one. Additionally, some words may be applicable to both a negative and positive sentiment using bing lexicon, so it is useful to explore the data to observe situation like these and make note if necessary. After analyzing from different paradigms of text analysis the data shows that despite there being an appreciable number of angry and negative sentiment, there is is an overall positive sentiment in the tweets on day of the result announcement. 
+
+
+
+
+
